@@ -1,0 +1,14 @@
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\bin\Debug\net9.0\DiscretizationFramework.exe
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\bin\Debug\net9.0\DiscretizationFramework.deps.json
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\bin\Debug\net9.0\DiscretizationFramework.runtimeconfig.json
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\bin\Debug\net9.0\DiscretizationFramework.dll
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\bin\Debug\net9.0\DiscretizationFramework.pdb
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.GeneratedMSBuildEditorConfig.editorconfig
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.AssemblyInfoInputs.cache
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.AssemblyInfo.cs
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.csproj.CoreCompileInputs.cache
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.dll
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\refint\DiscretizationFramework.dll
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.pdb
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.genruntimeconfig.cache
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\ref\DiscretizationFramework.dll
