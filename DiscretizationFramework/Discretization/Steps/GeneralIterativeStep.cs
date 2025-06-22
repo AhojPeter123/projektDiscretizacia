@@ -1,65 +1,70 @@
-﻿// DiscretizationFramework/Discretization/Steps/GeneralIterativeStep.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using DiscretizationFramework.Data.DataModels;
 using DiscretizationFramework.Discretization.Core;
 
 namespace DiscretizationFramework.Discretization.Steps
 {
     /// <summary>
-    /// Obsahuje všeobecné kroky pre iteratívne diskretizačné algoritmy.
-    /// Tieto kroky sú vysoko abstraktné a prijímajú delegátov pre konkrétne stratégie.
+    /// Reprezentuje generický iteratívny krok diskretizácie.
+    /// Obmedzuje opakujúcu sa logiku iterácie a umožňuje injektovať špecifickú binovaciu logiku.
     /// </summary>
-    public static class GeneralIterativeStep
+    public class GeneralIterativeStep
     {
-        /// <summary>
-        /// Všeobecný iteratívny krok, ktorý vykonáva cyklus a v každej iterácii volá
-        /// špecifickú funkciu (CutPointGenerator) na generovanie rezových bodov.
-        /// Vyžaduje parameter "NumberOfBins" v kontexte.
-        /// </summary>
-        /// <param name="context">Aktuálny kontext diskretizácie.</param>
-        /// <param name="generator">Funkcia (delegát), ktorá definuje, ako sa generuje cut-point v každej iterácii.</param>
-        /// <returns>Aktualizovaný kontext s vygenerovanými cut-points.</returns>
-        public static DiscretizationContext IterativeBinning(DiscretizationContext context, CutPointGenerator generator)
-        {
-            Console.WriteLine("    [GeneralIterativeStep] Spúšťam všeobecné iteratívne binovanie.");
+        // Delegát pre špecifickú logiku binovania, ktorá sa vykoná v tomto iteratívnom kroku.
+        // Kontext je vstup, zoznam cut-pointov je výstup.
+        public delegate List<double> IterativeBinningLogic(DiscretizationContext context);
 
-            if (!context.Parameters.TryGetValue("NumberOfBins", out object numBinsObj) || !(numBinsObj is int numberOfBins) || numberOfBins <= 0)
-            {
-                throw new ArgumentException("Parameter 'NumberOfBins' (int > 0) musí byť nastavený v kontexte pre iteratívne binovanie.");
-            }
+        private readonly string _stepName;
+        private readonly IterativeBinningLogic _binningLogic;
+
+        /// <summary>
+        /// Inicializuje nový generický iteratívny krok diskretizácie.
+        /// </summary>
+        /// <param name="stepName">Názov tohto kroku (pre logovanie).</param>
+        /// <param name="binningLogic">Funkcia implementujúca špecifickú binovaciu logiku.</param>
+        public GeneralIterativeStep(string stepName, IterativeBinningLogic binningLogic)
+        {
+            _stepName = stepName ?? throw new ArgumentNullException(nameof(stepName));
+            _binningLogic = binningLogic ?? throw new ArgumentNullException(nameof(binningLogic));
+        }
+
+        /// <summary>
+        /// Vykoná iteratívny diskretizačný krok.
+        /// </summary>
+        /// <param name="context">DiscretizationContext obsahujúci dáta a parametre.</param>
+        /// <returns>Modifikovaný DiscretizationContext s vypočítanými cut-pointami.</returns>
+        public DiscretizationContext Execute(DiscretizationContext context)
+        {
+            Console.WriteLine($"  Spúšťam iteratívny krok: {_stepName}.");
 
             if (!context.NumericValues.Any())
             {
-                Console.WriteLine("    Žiadne numerické hodnoty. Cut-points prázdne.");
-                context.CutPoints.Clear();
+                Console.WriteLine($"  Upozornenie: Žiadne numerické hodnoty pre {_stepName}. Preskakujem.");
                 return context;
             }
 
-            context.CutPoints.Clear();
-
-            // Pripravíme si DataRow objekty patriace k atribútu pre prípad, že ich generátor potrebuje (napr. pre cieľovú premennú)
-            var relevantDataRows = context.OriginalDataSet.Rows
-                .Where(r => r.Attributes.ContainsKey(context.AttributeName) &&
-                            (r.Attributes[context.AttributeName] is double || r.Attributes[context.AttributeName] is int || r.Attributes[context.AttributeName] is float))
-                .ToList();
-
-            // Táto slučka je teraz VŠEOBECNÁ pre všetky iteratívne algoritmy založené na numberOfBins.
-            for (int i = 0; i < numberOfBins - 1; i++) // Iterujeme pre každý cut-point
+            try
             {
-                // Voláme špecifickú generátorovú funkciu
-                List<double> generatedPoints = generator(context, i, context.NumericValues, relevantDataRows);
-                if (generatedPoints != null)
-                {
-                    context.CutPoints.AddRange(generatedPoints);
-                }
+                // Zavolá špecifickú logiku binovania
+                context.CutPoints = _binningLogic(context);
+                context.CutPoints = context.CutPoints.OrderBy(cp => cp).ToList(); // Zabezpečí zoradenie
+                Console.WriteLine($"  * {_stepName} generoval {context.CutPoints.Count} cut-pointov.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Chyba počas vykonávania iteratívneho kroku {_stepName}: {ex.Message}");
+                // Rozhodni sa, či tu hodiť výnimku, alebo vrátiť kontext v chybovom stave
+                throw;
             }
 
-            context.CutPoints = context.CutPoints.Distinct().OrderBy(c => c).ToList();
-
-            Console.WriteLine($"    Všeobecné iteratívne binovanie dokončené. Vygenerovaných {context.CutPoints.Count} cut-points.");
             return context;
+        }
+
+        // Implicitná konverzia na DiscretizationStep delegáta
+        public static implicit operator DiscretizationStep(GeneralIterativeStep step)
+        {
+            return step.Execute;
         }
     }
 }

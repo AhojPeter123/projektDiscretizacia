@@ -1,59 +1,44 @@
-﻿// DiscretizationFramework/Data/DataModels/DataSet.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace DiscretizationFramework.Data.DataModels
 {
     /// <summary>
-    /// Reprezentuje celý dataset ako kolekciu DataRow objektov.
-    /// Obsahuje aj meta-informácie o hlavičkách a inferovaných typoch atribútov.
+    /// Reprezentuje celú dátovú sadu, kolekciu DataRow objektov.
+    /// Obsahuje aj informácie o hlavičkách, cieľovom atribúte a inferovaných typoch.
     /// </summary>
     public class DataSet
     {
-        /// <summary>
-        /// Zoznam všetkých riadkov dát v datasete.
-        /// </summary>
-        public List<DataRow> Rows { get; set; } = new List<DataRow>();
+        public List<DataRow> Rows { get; }
+        public List<string> Headers { get; }
+        public string TargetAttributeName { get; } // Názov cieľového atribútu
+        public Dictionary<string, Type> AttributeTypes { get; } // Inferované typy pre každý atribút
 
         /// <summary>
-        /// Zoznam názvov hlavičiek (stĺpcov) datasetu, v poradí, v akom sa nachádzajú v súbore.
+        /// Inicializuje novú inštanciu triedy DataSet.
         /// </summary>
-        public List<string> Headers { get; set; } = new List<string>();
-
-        /// <summary>
-        /// Slovník mapujúci názov atribútu na jeho inferovaný dátový typ (napr. typeof(int), typeof(double), typeof(string)).
-        /// </summary>
-        public Dictionary<string, Type> AttributeTypes { get; set; } = new Dictionary<string, Type>();
-
-        /// <summary>
-        /// Názov stĺpca, ktorý bol určený ako cieľová premenná (label), ktorú model predpovedá.
-        /// </summary>
-        public string TargetAttributeName { get; set; }
-
-        /// <summary>
-        /// Pridá nový riadok dát do datasetu.
-        /// </summary>
-        /// <param name="row">Objekt DataRow, ktorý sa má pridať.</param>
-        public void AddRow(DataRow row)
+        /// <param name="rows">Zoznam riadkov dát.</param>
+        /// <param name="headers">Zoznam názvov hlavičiek (atribútov).</param>
+        /// <param name="targetAttributeName">Názov cieľového atribútu.</param>
+        /// <param name="attributeTypes">Slovník inferovaných typov pre každý atribút.</param>
+        public DataSet(List<DataRow> rows, List<string> headers, string targetAttributeName, Dictionary<string, Type> attributeTypes)
         {
-            Rows.Add(row);
+            Rows = rows ?? new List<DataRow>();
+            Headers = headers ?? new List<string>();
+            TargetAttributeName = targetAttributeName ?? string.Empty; // Zabezpečí, že TargetAttributeName nikdy nebude null
+            AttributeTypes = attributeTypes ?? new Dictionary<string, Type>();
         }
 
         /// <summary>
-        /// Získa zoznam všetkých numerických hodnôt pre daný atribút z celého datasetu.
-        /// Predpokladá, že atribút bol inferovaný ako int, double alebo float.
+        /// Získa hodnotu atribútu z daného riadku.
         /// </summary>
+        /// <param name="row">Dátový riadok.</param>
         /// <param name="attributeName">Názov atribútu.</param>
-        /// <returns>Zoznam double hodnôt. Ak atribút nie je numerický, vráti prázdny zoznam.</returns>
-        public List<double> GetNumericValues(string attributeName)
+        /// <returns>Hodnota atribútu alebo null, ak atribút neexistuje.</returns>
+        public object? GetAttributeValue(DataRow row, string attributeName)
         {
-            if (AttributeTypes.TryGetValue(attributeName, out Type type) &&
-                (type == typeof(double) || type == typeof(int) || type == typeof(float)))
-            {
-                return Rows.Select(r => Convert.ToDouble(r.Attributes[attributeName])).ToList();
-            }
-            return new List<double>();
+            return row.Attributes.GetValueOrDefault(attributeName);
         }
     }
 }

@@ -1,139 +1,109 @@
-﻿// DiscretizationFramework/Discretization/Core/Discretizer.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using DiscretizationFramework.Data.DataModels;
+using DiscretizationFramework.Discretization.Steps; // Stále potrebné pre CommonSteps
 
 namespace DiscretizationFramework.Discretization.Core
 {
-    /// <summary>
-    /// Hlavný orchestrátor pre diskretizáciu.
-    /// Je konfigurovaný zoznamom krokov (delegátov), ktoré predstavujú jednotlivé fázy diskretizačného algoritmu.
-    /// </summary>
     public class Discretizer
     {
-        private readonly List<DiscretizationStep> _steps;
         private readonly string _algorithmName;
+        private readonly List<DiscretizationStep> _steps; // Zoznam delegátov
 
-        /// <summary>
-        /// Privátny konštruktor. Inštancie sa vytvárajú pomocou statickej factory metódy Create().
-        /// </summary>
-        /// <param name="algorithmName">Názov diskretizačného algoritmu (pre logovanie).</param>
-        /// <param name="steps">Zoznam delegátov (funkcií), ktoré tvoria kroky tohto algoritmu.</param>
         private Discretizer(string algorithmName, List<DiscretizationStep> steps)
         {
-            _algorithmName = algorithmName ?? "Unknown Algorithm";
-            _steps = steps ?? throw new ArgumentNullException(nameof(steps), "Discretization steps cannot be null.");
+            _algorithmName = algorithmName;
+            _steps = steps;
         }
 
-        /// <summary>
-        /// Factory metóda na vytvorenie novej inštancie Discretizer s danou konfiguráciou krokov.
-        /// Toto je preferovaný spôsob vytvárania Discretizer objektov.
-        /// </summary>
-        /// <param name="algorithmName">Názov diskretizačného algoritmu.</param>
-        /// <param name="steps">Zoznam krokov (delegátov) definujúcich algoritmus.</param>
-        /// <returns>Nová inštancia Discretizer.</returns>
         public static Discretizer Create(string algorithmName, List<DiscretizationStep> steps)
         {
             return new Discretizer(algorithmName, steps);
         }
 
-        /// <summary>
-        /// Spustí diskretizačný proces na špecifikovaný numerický atribút datasetu.
-        /// Iteruje cez konfigurované kroky a aplikuje ich na DiscretizationContext.
-        /// </summary>
-        /// <param name="dataSet">Pôvodný dataset, ktorý obsahuje dáta na diskretizáciu.</param>
-        /// <param name="attributeName">Názov atribútu, ktorý sa má diskretizovať (musí byť numerický).</param>
-        /// <param name="initialParameters">Voliteľné počiatočné parametre, ktoré sa odovzdajú do kontextu.</param>
-        /// <returns>Zoznam DataRow objektov, kde je špecifikovaný atribút diskretizovaný (prevedený na string).</returns>
-        public List<DataRow> Discretize(DataSet dataSet, string attributeName, Dictionary<string, object> initialParameters = null)
+        public DiscretizationResult Discretize(DataSet dataSet, string attributeName, Dictionary<string, object>? initialParameters = null)
         {
-            if (dataSet == null)
-            {
-                throw new ArgumentNullException(nameof(dataSet), "DataSet cannot be null.");
-            }
-            if (string.IsNullOrWhiteSpace(attributeName))
-            {
-                throw new ArgumentNullException(nameof(attributeName), "Attribute name cannot be null or empty.");
-            }
+            if (dataSet == null) throw new ArgumentNullException(nameof(dataSet), "DataSet cannot be null.");
+            if (string.IsNullOrWhiteSpace(attributeName)) throw new ArgumentNullException(nameof(attributeName), "Attribute name cannot be null or empty.");
 
             Console.WriteLine($"\n--- Spúšťam diskretizáciu pre atribút '{attributeName}' pomocou algoritmu: '{_algorithmName}' ---");
 
             var context = new DiscretizationContext(dataSet, attributeName, initialParameters);
+            
+            // Pred vykonaním krokov inicializujeme NumericValues volaním CommonSteps.ConvertAttributesToNumeric
+            // ako súčasti pipeline, nie tu. Takže tu už nie je priame volanie.
+            // Spoliehame sa, že ConvertAttributesToNumeric bude prvý krok v _steps.
 
-            if (!dataSet.AttributeTypes.ContainsKey(attributeName) ||
-                !(dataSet.AttributeTypes[attributeName] == typeof(double) ||
-                  dataSet.AttributeTypes[attributeName] == typeof(int) ||
-                  dataSet.AttributeTypes[attributeName] == typeof(float)))
-            {
-                Console.WriteLine($"Upozornenie: Atribút '{attributeName}' nie je numerický alebo nebol nájdený. Preskakujem diskretizáciu.");
-                return dataSet.Rows.Select(r => new DataRow(new Dictionary<string, object>(r.Attributes), r.Target)).ToList();
-            }
-
-            if (!context.NumericValues.Any())
-            {
-                Console.WriteLine($"Upozornenie: Atribút '{attributeName}' neobsahuje žiadne numerické hodnoty pre diskretizáciu. Preskakujem.");
-                return dataSet.Rows.Select(r => new DataRow(new Dictionary<string, object>(r.Attributes), r.Target)).ToList();
-            }
-
+            // Vykonaj všetky definované diskretizačné kroky
             foreach (var step in _steps)
             {
-                try
+                context = step(context); // Každý krok vezme kontext a vráti modifikovaný
+                if (context == null)
                 {
-                    Console.WriteLine($"  -> Vykonávam krok: {step.Method.Name}");
-                    context = step(context);
-                    if (context == null)
-                    {
-                        Console.WriteLine($"Krok '{step.Method.Name}' vrátil null kontext. Diskretizácia prerušená.");
-                        return dataSet.Rows.Select(r => new DataRow(new Dictionary<string, object>(r.Attributes), r.Target)).ToList();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Chyba pri vykonávaní kroku '{step.Method.Name}' pre atribút '{attributeName}': {ex.Message}");
-                    return dataSet.Rows.Select(r => new DataRow(new Dictionary<string, object>(r.Attributes), r.Target)).ToList();
+                    Console.WriteLine($"Chyba: Krok diskretizácie '{step.Method.Name}' vrátil null kontext. Ukončujem.");
+                    return new DiscretizationResult();
                 }
             }
 
-            var discretizedRows = new List<DataRow>();
-            foreach (var originalRow in dataSet.Rows)
+            // Po všetkých krokoch získať výsledné numerické hodnoty z kontextu,
+            // ktoré boli naplnené v CommonSteps.ConvertAttributesToNumeric
+            List<double> originalNumericValues = new List<double>(context.NumericValues);
+
+            // Kontrola, či sa podarilo získať nejaké numerické hodnoty po konverznom kroku
+            if (!originalNumericValues.Any())
             {
-                var newAttributes = new Dictionary<string, object>(originalRow.Attributes);
-                if (originalRow.Attributes.ContainsKey(attributeName) &&
-                    (originalRow.Attributes[attributeName] is double ||
-                     originalRow.Attributes[attributeName] is int ||
-                     originalRow.Attributes[attributeName] is float))
-                {
-                    double valueToDiscretize = Convert.ToDouble(originalRow.Attributes[attributeName]);
-                    newAttributes[attributeName] = GetBinName(valueToDiscretize, context.CutPoints);
-                }
-                else
-                {
-                    newAttributes[attributeName] = originalRow.Attributes.ContainsKey(attributeName) ? originalRow.Attributes[attributeName]?.ToString() : "N/A";
-                }
-                discretizedRows.Add(new DataRow(newAttributes, originalRow.Target));
+                 Console.WriteLine($"Upozornenie: Atribút '{attributeName}' neobsahuje žiadne konvertovateľné numerické hodnoty. Preskakujem diskretizáciu.");
+                 return new DiscretizationResult
+                 {
+                    DiscretizedRows = dataSet.Rows.Select(r => new DataRow(new Dictionary<string, object>(r.Attributes), r.Target)).ToList(),
+                    FinalCutPoints = new List<double>(),
+                    OriginalNumericValues = originalNumericValues,
+                    DiscretizedAttributeName = attributeName
+                 };
             }
 
-            Console.WriteLine($"Diskretizácia atribútu '{attributeName}' dokončená. Vytvorených {context.CutPoints.Count + 1} binov.");
-            return discretizedRows;
+            // Konvertovať riadky na diskretizované
+            var discretizedRows = new List<DataRow>();
+            foreach (var row in dataSet.Rows)
+            {
+                var newAttributes = new Dictionary<string, object>(row.Attributes);
+                if (row.Attributes.TryGetValue(attributeName, out object? originalValueObj))
+                {
+                    double? originalNumericVal = CommonSteps.TryConvertToDouble(originalValueObj);
+                    if (originalNumericVal.HasValue)
+                    {
+                        string binLabel = GetBinLabel(originalNumericVal.Value, context.CutPoints);
+                        newAttributes[attributeName] = binLabel;
+                    }
+                    // Ak sa nedá konvertovať, ponecháme pôvodnú hodnotu (string)
+                }
+                discretizedRows.Add(new DataRow(newAttributes, row.Target));
+            }
+
+            return new DiscretizationResult
+            {
+                DiscretizedRows = discretizedRows,
+                FinalCutPoints = context.CutPoints,
+                OriginalNumericValues = originalNumericValues,
+                DiscretizedAttributeName = attributeName
+            };
         }
 
-        /// <summary>
-        /// Pomocná metóda na priradenie numerickej hodnoty k príslušnému binu na základe rezových bodov.
-        /// </summary>
-        /// <param name="value">Numerická hodnota, ktorú treba priradiť.</param>
-        /// <param name="cutPoints">Zoradený zoznam rezových bodov.</param>
-        /// <returns>Názov binu (napr. "Bin_0", "Bin_1").</returns>
-        private string GetBinName(double value, List<double> cutPoints)
+        private static string GetBinLabel(double value, List<double> cutPoints)
         {
+            // Predpokladáme, že cutPoints sú už zoradené
             for (int i = 0; i < cutPoints.Count; i++)
             {
-                if (value <= cutPoints[i])
+                if (value < cutPoints[i])
                 {
-                    return $"Bin_{i}";
+                    double lowerBound = (i == 0) ? double.NegativeInfinity : cutPoints[i - 1];
+                    return $"[{lowerBound:F2}, {cutPoints[i]:F2})";
                 }
             }
-            return $"Bin_{cutPoints.Count}";
+            // Posledný interval
+            double lowerLastBound = cutPoints.Any() ? cutPoints.Last() : double.NegativeInfinity;
+            return $"[{lowerLastBound:F2}, {double.PositiveInfinity:F2})";
         }
     }
 }

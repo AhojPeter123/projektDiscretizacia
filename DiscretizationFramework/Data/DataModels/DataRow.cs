@@ -1,39 +1,31 @@
-﻿// DiscretizationFramework/Data/DataModels/DataRow.cs
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Linq;
 
 namespace DiscretizationFramework.Data.DataModels
 {
     /// <summary>
-    /// Reprezentuje jeden riadok dát v datasete.
-    /// Atribúty sú dynamicky uložené v slovníku, čo umožňuje flexibilné typy dát.
+    /// Reprezentuje jeden riadok dát s atribútmi a cieľovou (target) hodnotou.
     /// </summary>
     public class DataRow
     {
-        /// <summary>
-        /// Slovník obsahujúci atribúty riadku. Kľúčom je názov atribútu (string),
-        /// hodnotou je samotná hodnota atribútu (object), ktorá môže byť rôzneho typu (int, double, string, atď.).
-        /// </summary>
-        public Dictionary<string, object> Attributes { get; set; } = new Dictionary<string, object>();
+        public Dictionary<string, object> Attributes { get; }
+        public string Target { get; } // Cieľový atribút (kategorický alebo diskretizovaný)
 
         /// <summary>
-        /// Cieľová premenná (trieda/label) pre daný riadok. Vždy je uložená ako string.
+        /// Inicializuje novú inštanciu triedy DataRow.
         /// </summary>
-        public string Target { get; set; }
-
-        /// <summary>
-        /// Inicializuje novú inštanciu triedy DataRow s danými atribútmi a cieľovou premennou.
-        /// </summary>
-        /// <param name="attributes">Slovník atribútov riadku.</param>
-        /// <param name="target">Hodnota cieľovej premennej.</param>
+        /// <param name="attributes">Slovník názvov atribútov a ich hodnôt.</param>
+        /// <param name="target">Cieľová (target) hodnota riadku.</param>
         public DataRow(Dictionary<string, object> attributes, string target)
         {
-            Attributes = attributes;
-            Target = target;
+            Attributes = attributes ?? new Dictionary<string, object>();
+            Target = target ?? string.Empty; // Zabezpečí, že Target nikdy nebude null
         }
 
-        /// <summary>
-        /// Inicializuje novú prázdnu inštanciu triedy DataRow.
-        /// </summary>
-        public DataRow() { }
+        public override string ToString()
+        {
+            var attrStrings = Attributes.Select(kv => $"{kv.Key}: {kv.Value}");
+            return $"[{string.Join(", ", attrStrings)}], Target: {Target}";
+        }
     }
 }

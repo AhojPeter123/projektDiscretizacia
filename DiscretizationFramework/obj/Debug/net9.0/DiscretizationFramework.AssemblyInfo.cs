@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DiscretizationFramework")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3c72b6892d5a0d8c9bee709c958b7c99e7b8fda6")]
 [assembly: System.Reflection.AssemblyProductAttribute("DiscretizationFramework")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DiscretizationFramework")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

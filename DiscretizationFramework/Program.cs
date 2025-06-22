@@ -2,94 +2,126 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 using DiscretizationFramework.Data.DataModels;
 using DiscretizationFramework.Data.DataReaders;
 using DiscretizationFramework.Discretization.Core;
 using DiscretizationFramework.Discretization.Steps;
+using DiscretizationFramework.Discretization.Strategies;
 
 namespace DiscretizationFramework
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
-            string csvFilePath = "sample_data.csv";
-            CreateSampleCsv(csvFilePath); // Vytvorí súbor pre test
+            string irisCsvFilePath = "iris.csv";
+            string irisUrl = "https://gist.githubusercontent.com/netj/8836201/raw/6f9306ad21398ea43cba4f7d537619d0e07d5ae3/iris.csv";
+
+            await DownloadIrisDataset(irisUrl, irisCsvFilePath);
 
             try
             {
-                Console.WriteLine("--- Začínam Načítanie Datasetu ---");
-                DataSet loadedDataSet = CsvDataReader.LoadCsv(csvFilePath, delimiter: ';', targetAttributeName: "BuysComputer");
+                Console.WriteLine("--- Začínam Načítanie Iris Datasetu ---");
+                List<string> irisHeaders = new List<string> {
+                    "Sepal.Length", "Sepal.Width", "Petal.Length", "Petal.Width", "Species"
+                };
+                DataSet loadedDataSet = CsvDataReader.LoadCsv(irisCsvFilePath, delimiter: ',', hasHeader: false, headers: irisHeaders, targetAttributeName: "Species");
 
                 if (!loadedDataSet.Rows.Any())
                 {
-                    Console.WriteLine("Dataset je prázdny alebo došlo k chybe. Ukončujem.");
+                    Console.WriteLine("Iris dataset je prázdny alebo došlo k chybe. Ukončujem.");
                     return;
                 }
-                PrintDataSetInfo(loadedDataSet, sampleRows: 5); // Pomocná funkcia na výpis info o datasete
+                PrintDataSetInfo(loadedDataSet, sampleRows: 0);
 
-                Console.WriteLine("\n--- Spúšťam Diskretizáciu pre testovacie scenáre ---");
+                Console.WriteLine("Inferované typy atribútov po načítaní (z DataSet):");
+                foreach (var entry in loadedDataSet.AttributeTypes)
+                {
+                    Console.WriteLine($"  - {entry.Key}: {entry.Value.Name}");
+                }
+                if (!loadedDataSet.AttributeTypes.Any())
+                {
+                    Console.WriteLine("  (Žiadne typy neboli inferované alebo DataSet.AttributeTypes je prázdne - očakáva sa konverzia v prvom kroku)");
+                }
 
-                // --- Test 1: Equal-Width Binning na atribúte 'Age' (4 biny) ---
-                Console.WriteLine("\n*** Test 1: Diskretizujem 'Age' pomocou Equal-Width Binningu (4 biny) ***");
-                var equalWidthDiscretizer = Discretizer.Create(
-                    "Equal-Width Binning",
+
+                Console.WriteLine("\n--- Spúšťam Diskretizáciu s Generickými Krokmi ---");
+
+                // Príklad 1: Unsupervised Information Density (Používa GeneralRecursiveStep)
+                Console.WriteLine("\n*** Test: Diskretizujem 'Petal.Length' pomocou UNSUPERVISED Information Density ***");
+                var unsupervisedIDDiscretizer = Discretizer.Create(
+                    "Unsupervised Information Density Discretization",
                     new List<DiscretizationStep>
                     {
-                        (context) => {
-                            context.Parameters["NumberOfBins"] = 4;
-                            Console.WriteLine("      Nastavujem parameter: NumberOfBins = 4 pre Equal-Width.");
-                            return context;
-                        },
-                        CommonSteps.PrepareNumericValues,
-                        (context) => GeneralIterativeStep.IterativeBinning(context, BinningStrategies.EqualWidthGenerator)
+                        CommonSteps.ConvertAttributesToNumeric,
+                        new GeneralRecursiveStep("Unsupervised IDD", InformationDensityStrategy.UnsupervisedSplitCriterion)
                     }
                 );
-                var resultAgeEW = equalWidthDiscretizer.Discretize(loadedDataSet, "Age");
-                Console.WriteLine("\n--- Výsledok diskretizácie 'Age' (Equal-Width, prvých 5 riadkov) ---");
-                PrintSampleRows(resultAgeEW, loadedDataSet.Headers, loadedDataSet.TargetAttributeName, 5);
+                var resultPetalLengthUnsup = unsupervisedIDDiscretizer.Discretize(loadedDataSet, "Petal.Length");
+                Console.WriteLine($"Finálne Cut-points pre 'Petal.Length' (Unsupervised): [{string.Join(", ", resultPetalLengthUnsup.FinalCutPoints.Select(cp => cp.ToString("F2")))}]");
 
-                // --- Test 2: Equal-Frequency Binning na atribúte 'CreditScore' (3 biny) ---
-                Console.WriteLine("\n*** Test 2: Diskretizujem 'CreditScore' pomocou Equal-Frequency Binningu (3 biny) ***");
-                var equalFrequencyDiscretizer = Discretizer.Create(
-                    "Equal-Frequency Binning",
+
+                // Príklad 2: Supervised Information Density (Používa GeneralRecursiveStep)
+                Console.WriteLine("\n*** Test: Diskretizujem 'Sepal.Length' pomocou SUPERVISED Information Density ***");
+                var supervisedIDDiscretizer = Discretizer.Create(
+                    "Supervised Information Density Discretization",
                     new List<DiscretizationStep>
                     {
-                        (context) => {
-                            context.Parameters["NumberOfBins"] = 3;
-                            Console.WriteLine("      Nastavujem parameter: NumberOfBins = 3 pre Equal-Frequency.");
-                            return context;
-                        },
-                        CommonSteps.PrepareNumericValues,
-                        (context) => GeneralIterativeStep.IterativeBinning(context, BinningStrategies.EqualFrequencyGenerator)
+                        CommonSteps.ConvertAttributesToNumeric,
+                        new GeneralRecursiveStep("Supervised IDD", InformationDensityStrategy.SupervisedSplitCriterion)
                     }
                 );
-                var resultCreditScoreEF = equalFrequencyDiscretizer.Discretize(loadedDataSet, "CreditScore");
-                Console.WriteLine("\n--- Výsledok diskretizácie 'CreditScore' (Equal-Frequency, prvých 5 riadkov) ---");
-                PrintSampleRows(resultCreditScoreEF, loadedDataSet.Headers, loadedDataSet.TargetAttributeName, 5);
+                var resultSepalLengthSup = supervisedIDDiscretizer.Discretize(loadedDataSet, "Sepal.Length");
+                Console.WriteLine($"Finálne Cut-points pre 'Sepal.Length' (Supervised): [{string.Join(", ", resultSepalLengthSup.FinalCutPoints.Select(cp => cp.ToString("F2")))}]");
 
 
-                // --- Test 3: Simulovaná rekurzívna diskretizácia na atribúte 'Age' ---
-                Console.WriteLine("\n*** Test 3: Diskretizujem 'Age' pomocou Simulovanej Rekurzívnej Diskretizácie ***");
-                var recursiveMdlpDiscretizer = Discretizer.Create(
-                    "Recursive MDLP-like Discretization",
+                // Príklad 3: Equal Width s automatickým určením počtu binov (Sturgesovo pravidlo)
+                Console.WriteLine("\n*** Test: Diskretizujem 'Sepal.Width' pomocou Equal Width Discretization (auto-bins Sturges) ***");
+                var equalWidthAutoBinsDiscretizer = Discretizer.Create(
+                    "Equal Width Discretization (Auto Bins - Sturges)",
                     new List<DiscretizationStep>
                     {
-                        (context) => {
-                            context.Parameters["MinGainThreshold"] = 0.01; // Simulovaný prah
-                            context.Parameters["MaxDepth"] = 2; // Simulovaná hĺbka pre zjednodušenie
-                            Console.WriteLine("      Nastavujem parametre pre simulovanú rekurziu: MinGainThreshold=0.01, MaxDepth=2.");
-                            return context;
-                        },
-                        CommonSteps.PrepareNumericValues,
-                        (context) => GeneralRecursiveStep.RecursiveBinning(context, BinningStrategies.SimulatedMdlpSplitFinder)
+                        CommonSteps.ConvertAttributesToNumeric, // Krok 1: Konverzia
+                        CommonSteps.CalculateOptimalNumberOfBins, // Krok 2: Vypočíta a uloží "optimalNumBins" do kontextu
+                        new GeneralIterativeStep("Equal Width", EqualWidthStrategy.BinningLogic) // Krok 3: Použije "optimalNumBins"
                     }
                 );
-                var resultAgeMDLP = recursiveMdlpDiscretizer.Discretize(loadedDataSet, "Age");
-                Console.WriteLine("\n--- Výsledok diskretizácie 'Age' (Simulovaná Rekurzívna, prvých 5 riadkov) ---");
-                PrintSampleRows(resultAgeMDLP, loadedDataSet.Headers, loadedDataSet.TargetAttributeName, 5);
+                var resultSepalWidthEWAuto = equalWidthAutoBinsDiscretizer.Discretize(loadedDataSet, "Sepal.Width");
+                Console.WriteLine($"Finálne Cut-points pre 'Sepal.Width' (Equal Width, Auto Bins): [{string.Join(", ", resultSepalWidthEWAuto.FinalCutPoints.Select(cp => cp.ToString("F2")))}]");
+
+
+                // Príklad 4: Equal Frequency s explicitným počtom binov
+                Console.WriteLine("\n*** Test: Diskretizujem 'Petal.Width' pomocou Equal Frequency Discretization (explicit-bins) ***");
+                var equalFrequencyExplicitBinsDiscretizer = Discretizer.Create(
+                    "Equal Frequency Discretization (Explicit Bins)",
+                    new List<DiscretizationStep>
+                    {
+                        CommonSteps.ConvertAttributesToNumeric,
+                        new GeneralIterativeStep("Equal Frequency", EqualFrequencyStrategy.BinningLogic)
+                    }
+                );
+                var parametersEF = new Dictionary<string, object> { { "numBins", 3 } }; // Explicitne 3 biny
+                var resultPetalWidthEFExplicit = equalFrequencyExplicitBinsDiscretizer.Discretize(loadedDataSet, "Petal.Width", parametersEF);
+                Console.WriteLine($"Finálne Cut-points pre 'Petal.Width' (Equal Frequency, 3 bins): [{string.Join(", ", resultPetalWidthEFExplicit.FinalCutPoints.Select(cp => cp.ToString("F2")))}]");
+
+                // Príklad 5: Equal Frequency s automatickým určením počtu binov (Sturgesovo pravidlo)
+                Console.WriteLine("\n*** Test: Diskretizujem 'Petal.Width' pomocou Equal Frequency Discretization (auto-bins Sturges) ***");
+                var equalFrequencyAutoBinsDiscretizer = Discretizer.Create(
+                    "Equal Frequency Discretization (Auto Bins - Sturges)",
+                    new List<DiscretizationStep>
+                    {
+                        CommonSteps.ConvertAttributesToNumeric, // Krok 1: Konverzia
+                        CommonSteps.CalculateOptimalNumberOfBins, // Krok 2: Vypočíta a uloží "optimalNumBins" do kontextu
+                        new GeneralIterativeStep("Equal Frequency", EqualFrequencyStrategy.BinningLogic) // Krok 3: Použije "optimalNumBins"
+                    }
+                );
+                var resultPetalWidthEFAuto = equalFrequencyAutoBinsDiscretizer.Discretize(loadedDataSet, "Petal.Width");
+                Console.WriteLine($"Finálne Cut-points pre 'Petal.Width' (Equal Frequency, Auto Bins): [{string.Join(", ", resultPetalWidthEFAuto.FinalCutPoints.Select(cp => cp.ToString("F2")))}]");
+
 
             }
             catch (Exception ex)
@@ -99,46 +131,42 @@ namespace DiscretizationFramework
             }
             finally
             {
-                if (File.Exists(csvFilePath))
+                if (File.Exists(irisCsvFilePath))
                 {
-                    File.Delete(csvFilePath);
-                    Console.WriteLine($"\nTestovací CSV súbor '{csvFilePath}' bol vymazaný.");
+                    File.Delete(irisCsvFilePath);
+                    Console.WriteLine($"\nTestovací CSV súbor '{irisCsvFilePath}' bol vymazaný.");
                 }
                 Console.WriteLine("\nTestovanie dokončené. Pre ukončenie stlačte ľubovoľnú klávesu...");
                 Console.ReadKey();
             }
         }
 
-        /// <summary>
-        /// Pomocná metóda na vytvorenie simulovaného CSV súboru pre testovanie.
-        /// </summary>
-        private static void CreateSampleCsv(string filePath)
+        private static async Task DownloadIrisDataset(string url, string filePath)
         {
-            string csvContent = "Age;Income;Student;CreditScore;BuysComputer\n" +
-                                "20;Low;No;Excellent;No\n" +
-                                "25;Low;No;Fair;No\n" +
-                                "30;High;No;Excellent;Yes\n" +
-                                "35;Medium;No;Fair;Yes\n" +
-                                "40;High;Yes;Excellent;Yes\n" +
-                                "45;Medium;Yes;Fair;No\n" +
-                                "50;Low;No;Excellent;Yes\n" +
-                                "55;High;No;Fair;Yes\n" +
-                                "60;Medium;Yes;Excellent;No\n" +
-                                "65;Low;No;Fair;No\n" +
-                                "70;High;Yes;Excellent;Yes\n" +
-                                "22;Medium;No;Fair;No\n" +
-                                "38;Low;Yes;Excellent;Yes\n" +
-                                "48;High;No;Fair;Yes\n" +
-                                "29;Low;No;Fair;No\n" +
-                                "33;High;No;Excellent;Yes";
+            if (File.Exists(filePath))
+            {
+                Console.WriteLine($"Súbor '{Path.GetFileName(filePath)}' už existuje, preskakujem stiahnutie.");
+                return;
+            }
 
-            File.WriteAllText(filePath, csvContent);
-            Console.WriteLine($"Simulovaný CSV súbor '{Path.GetFileName(filePath)}' bol vytvorený.");
+            Console.WriteLine($"Sťahujem Iris dataset z {url}...");
+            using (HttpClient client = new HttpClient())
+            {
+                try
+                {
+                    string csvContent = await client.GetStringAsync(url);
+                    File.WriteAllText(filePath, csvContent);
+                    Console.WriteLine($"Iris dataset uložený do '{Path.GetFileName(filePath)}'.");
+                }
+                catch (HttpRequestException e)
+                {
+                    Console.WriteLine($"Chyba pri sťahovaní datasetu: {e.Message}");
+                    Console.WriteLine("Skontrolujte pripojenie na internet alebo URL adresu.");
+                    Environment.Exit(1);
+                }
+            }
         }
 
-        /// <summary>
-        /// Vypíše základné informácie o datasete.
-        /// </summary>
         private static void PrintDataSetInfo(DataSet dataSet, int sampleRows)
         {
             Console.WriteLine($"\n--- Informácie o načítanom datasete ({dataSet.Rows.Count} riadkov) ---");
@@ -149,28 +177,26 @@ namespace DiscretizationFramework
             {
                 Console.WriteLine($"  - {entry.Key}: {entry.Value.Name}");
             }
-
-            Console.WriteLine($"\n--- Vzorka prvých {sampleRows} riadkov pôvodných dát ---");
-            PrintSampleRows(dataSet.Rows, dataSet.Headers, dataSet.TargetAttributeName, sampleRows);
+            if (sampleRows > 0)
+            {
+                Console.WriteLine($"\n--- Vzorka prvých {sampleRows} riadkov pôvodných dát ---");
+                PrintSampleRows(dataSet.Rows, dataSet.Headers, dataSet.TargetAttributeName, sampleRows);
+            }
         }
 
-        /// <summary>
-        /// Vypíše vzorku riadkov datasetu do konzoly.
-        /// </summary>
         private static void PrintSampleRows(List<DataRow> rows, List<string> headers, string targetAttributeName, int count)
         {
-            if (!rows.Any())
+            if (!rows.Any() || count <= 0)
             {
                 Console.WriteLine("Žiadne riadky na zobrazenie.");
                 return;
             }
 
-            // Vytvoríme hlavičkový riadok (bez cieľového atribútu na začiatku, pridáme ho na koniec)
             var displayHeaders = headers.Where(h => h != targetAttributeName).ToList();
-            displayHeaders.Add(targetAttributeName); // Cieľový atribút na koniec pre konzistentnosť
+            displayHeaders.Add(targetAttributeName);
 
             Console.WriteLine(string.Join("\t", displayHeaders));
-            Console.WriteLine(new string('-', (displayHeaders.Count * 8) - 1)); // Podčiarknutie
+            Console.WriteLine(new string('-', (displayHeaders.Count * 8) - 1));
 
             int printedCount = 0;
             foreach (var row in rows)
@@ -180,9 +206,9 @@ namespace DiscretizationFramework
                 var valuesToPrint = new List<string>();
                 foreach (var header in displayHeaders.Where(h => h != targetAttributeName))
                 {
-                    valuesToPrint.Add(row.Attributes.TryGetValue(header, out object value) ? value.ToString() : "N/A");
+                    valuesToPrint.Add(row.Attributes.TryGetValue(header, out object? value) ? (value?.ToString() ?? "N/A") : "N/A");
                 }
-                valuesToPrint.Add(row.Target); // Pridáme cieľovú hodnotu na koniec
+                valuesToPrint.Add(row.Target);
 
                 Console.WriteLine(string.Join("\t", valuesToPrint));
                 printedCount++;
@@ -193,4 +219,4 @@ namespace DiscretizationFramework
             }
         }
     }
-} 
+}

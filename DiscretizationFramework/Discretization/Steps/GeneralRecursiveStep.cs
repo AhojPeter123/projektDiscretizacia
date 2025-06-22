@@ -1,5 +1,4 @@
-﻿// DiscretizationFramework/Discretization/Steps/GeneralRecursiveStep.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using DiscretizationFramework.Data.DataModels;
@@ -8,103 +7,146 @@ using DiscretizationFramework.Discretization.Core;
 namespace DiscretizationFramework.Discretization.Steps
 {
     /// <summary>
-    /// Obsahuje všeobecné kroky pre rekurzívne diskretizačné algoritmy.
-    /// Tieto kroky sú vysoko abstraktné a prijímajú delegátov pre konkrétne stratégie splitov.
+    /// Reprezentuje generický rekurzívny diskretizačný krok (top-down delenie).
+    /// Umožňuje injektovať logiku pre výpočet kritéria delenia a akceptácie cut-pointu.
     /// </summary>
-    public static class GeneralRecursiveStep
+    public class GeneralRecursiveStep
     {
+        // Delegát pre logiku rozhodovania o delení pre danú partíciu.
+        // Vráti najlepší cut-point a bool indikujúci, či sa má delenie vykonať.
+        // Particia, Min Hodnota, Max Hodnota, Nájdené Cut-points (pre pridanie)
+        public delegate (double? bestCutPoint, bool shouldSplit) RecursiveSplitCriterionLogic(
+            List<DataRow> currentRows,
+            string attributeName,
+            double currentMin,
+            double currentMax,
+            HashSet<double> allFoundCutPoints, // Pre pridanie cut-pointu priamo z logiky kritéria
+            Dictionary<string, object> parameters // Kontextové parametre
+        );
+
+        private readonly string _stepName;
+        private readonly RecursiveSplitCriterionLogic _splitCriterionLogic;
+        private readonly int _maxDepth; // Limit hĺbky rekurzie
+
         /// <summary>
-        /// Všeobecný rekurzívny krok, ktorý hľadá optimálne rezové body v segmentoch dát.
-        /// Tento krok je motorom pre algoritmy ako MDLP.
+        /// Inicializuje nový generický rekurzívny krok diskretizácie.
         /// </summary>
-        /// <param name="context">Aktuálny kontext diskretizácie.</param>
-        /// <param name="splitFinder">Funkcia (delegát), ktorá nájde optimálny split point pre daný segment.</param>
-        /// <returns>Aktualizovaný kontext s finálnymi rekurzívne nájdenými cut-pointmi.</returns>
-        public static DiscretizationContext RecursiveBinning(DiscretizationContext context, OptimalSplitFinder splitFinder)
+        /// <param name="stepName">Názov tohto kroku (pre logovanie).</param>
+        /// <param name="splitCriterionLogic">Funkcia implementujúca logiku delenia (nájdenie cut-pointu a rozhodnutie o delení).</param>
+        /// <param name="maxDepth">Maximálna hĺbka rekurzie na zabránenie nekonečnej slučke.</param>
+        public GeneralRecursiveStep(string stepName, RecursiveSplitCriterionLogic splitCriterionLogic, int maxDepth = 100)
         {
-            Console.WriteLine("    [GeneralRecursiveStep] Spúšťam všeobecné rekurzívne binovanie.");
+            _stepName = stepName ?? throw new ArgumentNullException(nameof(stepName));
+            _splitCriterionLogic = splitCriterionLogic ?? throw new ArgumentNullException(nameof(splitCriterionLogic));
+            _maxDepth = maxDepth;
+        }
 
-            context.CutPoints.Clear();
+        /// <summary>
+        /// Vykoná rekurzívny diskretizačný krok.
+        /// </summary>
+        /// <param name="context">DiscretizationContext obsahujúci dáta a parametre.</param>
+        /// <returns>Modifikovaný DiscretizationContext s vypočítanými cut-pointami.</returns>
+        public DiscretizationContext Execute(DiscretizationContext context)
+        {
+            Console.WriteLine($"  Spúšťam rekurzívny krok: {_stepName}.");
 
-            // Pripravíme si DataRow objekty a ich numerické hodnoty pre celý atribút na začiatok rekurzie
-            List<DataRow> fullSegmentDataRows = context.OriginalDataSet.Rows
-                .Where(r => r.Attributes.ContainsKey(context.AttributeName) &&
-                            (r.Attributes[context.AttributeName] is double || r.Attributes[context.AttributeName] is int || r.Attributes[context.AttributeName] is float))
-                .ToList();
+            if (!context.NumericValues.Any())
+            {
+                Console.WriteLine($"  Upozornenie: Žiadne numerické hodnoty pre {_stepName}. Preskakujem.");
+                return context;
+            }
 
-            List<double> fullSegmentNumericValues = fullSegmentDataRows
-                .Select(r => Convert.ToDouble(r.Attributes[context.AttributeName]))
-                .OrderBy(x => x)
-                .ToList();
+            var allRows = context.OriginalDataSet.Rows;
+            var attributeName = context.AttributeName;
+            var initialMinVal = context.NumericValues.Min();
+            var initialMaxVal = context.NumericValues.Max();
 
-            // Interná rekurzívna funkcia, ktorá sa bude volať
-            FindSplitsRecursive(context, splitFinder, fullSegmentNumericValues, fullSegmentDataRows);
+            var finalCutPoints = new HashSet<double>();
 
-            context.CutPoints = context.CutPoints.Distinct().OrderBy(c => c).ToList();
+            try
+            {
+                // Spustí rekurzívny proces
+                RecursiveSplit(allRows, attributeName, initialMinVal, initialMaxVal, finalCutPoints, context.Parameters, 0);
 
-            Console.WriteLine($"    Všeobecné rekurzívne binovanie dokončené. Vygenerovaných {context.CutPoints.Count} cut-points.");
+                context.CutPoints = finalCutPoints.OrderBy(cp => cp).ToList();
+                Console.WriteLine($"  * {_stepName} generoval {context.CutPoints.Count} cut-pointov.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Chyba počas vykonávania rekurzívneho kroku {_stepName}: {ex.Message}");
+                throw;
+            }
+
             return context;
         }
 
         /// <summary>
-        /// Rekurzívna pomocná funkcia, ktorá aplikuje stratégiu hľadania splitov.
+        /// Vnútorná rekurzívna funkcia pre delenie partícií.
         /// </summary>
-        /// <param name="context">DiscretizationContext.</param>
-        /// <param name="splitFinder">Funkcia (delegát), ktorá nájde optimálny split.</param>
-        /// <param name="segmentNumericValues">Numerické hodnoty aktuálneho segmentu.</param>
-        /// <param name="segmentDataRows">Originálne DataRow objekty patriace do segmentu.</param>
-        private static void FindSplitsRecursive(
-            DiscretizationContext context,
-            OptimalSplitFinder splitFinder,
-            List<double> segmentNumericValues,
-            List<DataRow> segmentDataRows)
+        private void RecursiveSplit(
+            List<DataRow> currentRows,
+            string attributeName,
+            double currentMin,
+            double currentMax,
+            HashSet<double> allFoundCutPoints,
+            Dictionary<string, object> parameters,
+            int depth)
         {
-            // Podmienky zastavenia rekurzie
-            if (segmentNumericValues.Count < 2) // Potrebujeme aspoň dve hodnoty pre potenciálny split
+            // Základné podmienky pre ukončenie rekurzie:
+            // 1. Žiadne riadky alebo prázdny interval
+            // 2. Prekročená maximálna hĺbka
+            if (!currentRows.Any() || currentMax <= currentMin || depth >= _maxDepth)
             {
+                // Console.WriteLine($"    Rekurzia zastavená (Hĺbka {depth}, Riadky: {currentRows.Count}, Rozsah: [{currentMin:F2}-{currentMax:F2}]).");
                 return;
             }
 
-            // Zavoláme delegáta, ktorý nájde najlepší split pre tento segment
-            double? bestSplitPoint = splitFinder(context, segmentNumericValues, segmentDataRows);
+            // Zavolá injektovanú logiku pre určenie cut-pointu a rozhodnutie o delení
+            var (bestCutPoint, shouldSplit) = _splitCriterionLogic(
+                currentRows, attributeName, currentMin, currentMax, allFoundCutPoints, parameters);
 
-            if (bestSplitPoint.HasValue)
+            if (shouldSplit && bestCutPoint.HasValue && !double.IsNaN(bestCutPoint.Value))
             {
-                context.CutPoints.Add(bestSplitPoint.Value);
-                Console.WriteLine($"      [RecursiveStep] Náhľad: Nájdený split: {bestSplitPoint.Value:F2}");
+                allFoundCutPoints.Add(bestCutPoint.Value);
+                // Console.WriteLine($"    Nájdený cut-point v hĺbke {depth}: {bestCutPoint.Value:F2}");
 
-                // Rozdelenie segmentu na ľavý a pravý na základe nájdeného split pointu
-                var leftSegmentDataRows = new List<DataRow>();
-                var rightSegmentDataRows = new List<DataRow>();
+                // Rozdelenie dát na dve partície na základe nájdeného cut-pointu
+                var leftPartitionRows = new List<DataRow>();
+                var rightPartitionRows = new List<DataRow>();
 
-                foreach (var row in segmentDataRows)
+                foreach (var row in currentRows)
                 {
-                    double value = Convert.ToDouble(row.Attributes[context.AttributeName]);
-                    if (value <= bestSplitPoint.Value)
+                    if (row.Attributes.TryGetValue(attributeName, out object? valueObj))
                     {
-                        leftSegmentDataRows.Add(row);
-                    }
-                    else
-                    {
-                        rightSegmentDataRows.Add(row);
+                        double? value = CommonSteps.TryConvertToDouble(valueObj);
+                        if (value.HasValue)
+                        {
+                            if (value.Value < bestCutPoint.Value)
+                            {
+                                leftPartitionRows.Add(row);
+                            }
+                            else
+                            {
+                                rightPartitionRows.Add(row);
+                            }
+                        }
                     }
                 }
-
-                // Extrahovanie a zoradenie numerických hodnôt pre nové segmenty
-                List<double> leftSegmentNumericValues = leftSegmentDataRows
-                    .Select(r => Convert.ToDouble(r.Attributes[context.AttributeName]))
-                    .OrderBy(x => x)
-                    .ToList();
-                List<double> rightSegmentNumericValues = rightSegmentDataRows
-                    .Select(r => Convert.ToDouble(r.Attributes[context.AttributeName]))
-                    .OrderBy(x => x)
-                    .ToList();
-
-                // Rekurzívne volania pre oba nové segmenty
-                FindSplitsRecursive(context, splitFinder, leftSegmentNumericValues, leftSegmentDataRows);
-                FindSplitsRecursive(context, splitFinder, rightSegmentNumericValues, rightSegmentDataRows);
+                
+                // Rekurzívne volanie pre obe nové partície
+                RecursiveSplit(leftPartitionRows, attributeName, currentMin, bestCutPoint.Value, allFoundCutPoints, parameters, depth + 1);
+                RecursiveSplit(rightPartitionRows, attributeName, bestCutPoint.Value, currentMax, allFoundCutPoints, parameters, depth + 1);
             }
-            // Ak bestSplitPoint nemá hodnotu (je null), znamená to, že sa segment už nedelí (napr. nízky informačný zisk alebo všetky hodnoty sú rovnaké)
+            // else
+            // {
+            //     Console.WriteLine($"    Rekurzia zastavená v hĺbke {depth}: Žiadny zlepšujúci cut-point pre '{attributeName}' v rozsahu [{currentMin:F2}-{currentMax:F2}].");
+            // }
+        }
+
+        // Implicitná konverzia na DiscretizationStep delegáta
+        public static implicit operator DiscretizationStep(GeneralRecursiveStep step)
+        {
+            return step.Execute;
         }
     }
 }

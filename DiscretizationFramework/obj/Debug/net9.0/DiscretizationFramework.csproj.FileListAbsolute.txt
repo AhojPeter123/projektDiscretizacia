@@ -12,3 +12,4 @@ C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\Discretiza
 C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.pdb
 C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.genruntimeconfig.cache
 C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\ref\DiscretizationFramework.dll
+C:\skola\ing\projekt\discretization_framework\DiscretizationFramework\DiscretizationFramework\obj\Debug\net9.0\DiscretizationFramework.sourcelink.json
